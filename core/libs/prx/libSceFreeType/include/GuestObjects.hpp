@@ -74,6 +74,7 @@ struct GuestFace {
 
 void RegisterBitmap_nid_no_patch(GuestFace& face);
 extern "C" int FreeTypeNewGlyph_nid_no_patch(GuestLibrary* library, std::uint32_t format, GuestGlyphRec** target);
+int FreeTypeStrokeGlyph_nid_no_patch(GuestGlyphRec** target, void* stroker, std::int32_t border, bool destroy);
 
 GuestFace* FaceOf(const GuestFaceRec* face);
 GuestFace* FaceOf(const GuestGlyphSlotRec* slot);

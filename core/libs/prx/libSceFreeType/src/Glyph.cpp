@@ -4,11 +4,14 @@
 #include "prx/libc/include/GuestArena.hpp"
 
 #include FT_GLYPH_H
+#include FT_STROKER_H
 
 #include <algorithm>
 #include <bit>
 #include <limits>
 #include <mutex>
+#include <stdexcept>
+#include <string>
 #include <unordered_map>
 #include <utility>
 
@@ -124,6 +127,61 @@ int FreeType::FreeTypeNewGlyph_nid_no_patch(GuestLibrary* library, std::uint32_t
     owner.Publish({}, __func__);
     *target = address;
     return 0;
+}
+
+int FreeType::FreeTypeStrokeGlyph_nid_no_patch(GuestGlyphRec** target, void* stroker, std::int32_t border, bool destroy) {
+    constexpr const char* function = "FreeTypeStrokeGlyph_nid_no_patch";
+    GuestGlyphRec* glyph = nullptr;
+    if (!target || !GuestCopyIn_nid_no_patch(&glyph, target, sizeof(glyph))) return FT_Err_Invalid_Argument;
+    if (!glyph) return FT_Err_Invalid_Argument;
+    {
+        std::lock_guard lock(glyphMutex);
+        if (Find(glyph, function, false).isBitmap) return FT_Err_Invalid_Argument;
+    }
+    GuestGlyphRec* copy = nullptr;
+    FT_Error error = FT_Glyph_Copy_nid_postfix(glyph, &copy);
+    if (error) return error;
+    auto& image = reinterpret_cast<GuestOutlineGlyphRec*>(copy)->outline;
+    error = FT_Stroker_ParseOutline_nid_postfix(stroker, &image, 0);
+    std::uint32_t points = 0;
+    std::uint32_t contours = 0;
+    if (!error) {
+        if (border < 0) error = FT_Stroker_GetCounts_nid_postfix(stroker, &points, &contours);
+        else FT_Stroker_GetBorderCounts_nid_postfix(stroker, border, &points, &contours);
+    }
+    if (!error) {
+        std::lock_guard lock(glyphMutex);
+        auto& owner = Find(copy, function);
+        auto& native = reinterpret_cast<FT_OutlineGlyph>(owner.host.get())->outline;
+        FT_Outline_Done(owner.host->library, &native);
+        error = FT_Outline_New(owner.host->library, Count<FT_UInt>(points, function), Count<FT_Int>(contours, function), &native);
+        if (error) native = {};
+        owner.points.assign(error ? 0 : points, GuestVector{});
+        image = {0, 0, owner.points.empty() ? nullptr : owner.points.data(), reinterpret_cast<unsigned char*>(native.tags),
+                 reinterpret_cast<std::uint16_t*>(native.contours), native.flags};
+    }
+    if (!error) {
+        if (border < 0) StrokerExport_nid_no_patch(stroker, &image);
+        else FT_Stroker_ExportBorder_nid_postfix(stroker, border, &image);
+        std::lock_guard lock(glyphMutex);
+        auto& owner = Find(copy, function);
+        auto& native = reinterpret_cast<FT_OutlineGlyph>(owner.host.get())->outline;
+        native.n_points = Count<decltype(native.n_points)>(image.n_points, function);
+        native.n_contours = Count<decltype(native.n_contours)>(image.n_contours, function);
+        const GuestVector advance = copy->advance;
+        owner.Publish(image, function);
+        copy->advance = advance;
+    }
+    GuestGlyphRec* result = copy;
+    if (error) {
+        FT_Done_Glyph_nid_postfix(copy);
+        if (destroy) return error;
+        result = nullptr;
+    } else if (destroy) {
+        FT_Done_Glyph_nid_postfix(glyph);
+    }
+    if (!GuestCopyOut_nid_no_patch(target, &result, sizeof(result))) throw std::invalid_argument(std::string(function) + ": unwritable glyph pointer");
+    return error;
 }
 
 extern "C" {

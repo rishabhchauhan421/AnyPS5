@@ -1,5 +1,8 @@
 #include "prx/libSceFreeTypeOt/libSceFreeTypeOt.hpp"
 #include "prx/libSceFreeType/include/GuestObjects.hpp"
+#include <ft2build.h>
+#include FT_GLYPH_H
+#include FT_STROKER_H
 #include <cerrno>
 #include <bit>
 #include <cstddef>
@@ -115,12 +118,18 @@ int APS5_VABI sceFreeTypeOtGlyphGetCBox_nid_no_patch() {
 }
 APS5_EXPORT("avLzN0tTxLI", sceFreeTypeOtGlyphGetCBox_nid_no_patch);
 
-int APS5_VABI FT_Glyph_Stroke_nid_postfix() {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI FT_Glyph_Stroke_nid_postfix(FreeType::GuestGlyphRec** glyph, void* stroker, std::uint8_t destroy) {
+    return FreeType::FreeTypeStrokeGlyph_nid_no_patch(glyph, stroker, -1, destroy != 0);
 }
 
-int APS5_VABI sceFreeTypeOtGlyphStrokeBorder_nid_no_patch() {
-    NotImplemented_nid_no_patch(__func__);
+int APS5_VABI sceFreeTypeOtGlyphStrokeBorder_nid_no_patch(FreeType::GuestGlyphRec** glyph, void* stroker, std::uint8_t inside, std::uint8_t destroy) {
+    FreeType::GuestGlyphRec* source = nullptr;
+    std::int32_t border = FT_STROKER_BORDER_LEFT;
+    if (glyph && GuestCopyIn_nid_no_patch(&source, glyph, sizeof(source)) && source && source->format == FT_GLYPH_FORMAT_OUTLINE) {
+        border = FT_Outline_GetOutsideBorder_nid_postfix(&reinterpret_cast<FreeType::GuestOutlineGlyphRec*>(source)->outline);
+        if (inside != 0) border = border == FT_STROKER_BORDER_LEFT ? FT_STROKER_BORDER_RIGHT : FT_STROKER_BORDER_LEFT;
+    }
+    return FreeType::FreeTypeStrokeGlyph_nid_no_patch(glyph, stroker, border, destroy != 0);
 }
 APS5_EXPORT("BBRhYfYBDgU", sceFreeTypeOtGlyphStrokeBorder_nid_no_patch);
 
